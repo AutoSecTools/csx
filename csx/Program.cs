@@ -58,7 +58,7 @@ namespace csx
                                 {
                                     SyntaxFactory.VariableDeclarator(
                                         GetAutoField(x.Identifier.Text))
-                                }))).WithTrailingTrivia(SyntaxFactory.Whitespace("\r\n"))
+                                })))
                 })
                 .ToArray();
             
@@ -66,7 +66,9 @@ namespace csx
             {
                 var members = node.Members.Insert(
                     node.Members.IndexOf(f.Property),
-                    f.Field.WithLeadingTrivia(SyntaxFactory.Whitespace("\r\n        ")));
+                    f.Field
+                        .WithLeadingTrivia(SyntaxFactory.Whitespace("\r\n" + f.Property.GetLeadingTrivia()))
+                        .WithTrailingTrivia(SyntaxFactory.Whitespace("\r\n")));
 
                 node = node.WithMembers(members);
             }
@@ -92,20 +94,39 @@ namespace csx
 
             var setter = GetSet(node);
 
-            if (setter == null || setter.Body == null)
+            if (setter == null)
             {
                 return base.VisitPropertyDeclaration(node);
             }
-            
+
             var call = SyntaxFactory.ExpressionStatement(
                 SyntaxFactory.InvocationExpression(
                     SyntaxFactory.IdentifierName("InvokePropertyChanged")));
 
+            AccessorDeclarationSyntax newSetter;
+
+            if (setter.Body == null)
+            {
+                var block = SyntaxFactory.Block(
+                    SyntaxFactory.ExpressionStatement(
+                        SyntaxFactory.AssignmentExpression(
+                            SyntaxKind.SimpleAssignmentExpression,
+                            SyntaxFactory.IdentifierName(GetAutoField(node.Identifier.Text)),
+                            SyntaxFactory.IdentifierName("value"))),
+                    call);
+
+                newSetter = setter.WithBody(block);
+            }
+            else
+            {
+                newSetter = setter.AddBodyStatements(call);
+            }
+
             node = node.WithAccessorList(
-                node.AccessorList.WithAccessors(
-                    node.AccessorList.Accessors
-                        .Remove(setter)
-                        .Add(setter.AddBodyStatements(call))));
+                    node.AccessorList.WithAccessors(
+                        node.AccessorList.Accessors
+                            .Remove(setter)
+                            .Add(newSetter)));
 
             return base.VisitPropertyDeclaration(node);
         }
